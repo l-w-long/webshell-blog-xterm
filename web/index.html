@@ -395,7 +395,169 @@
             }
         };
 
-        // 文章分类数据
+        // ==================== 虚拟文件系统 ====================
+        const VirtualFileSystem = {
+            // 文件数据库 - 所有文件都在这里
+            files: {
+                '/home/readme.md': {
+                    type: 'md',
+                    title: 'README',
+                    content: '# WebShell Blog\n\nA terminal-style blog system.\n\n## Commands\n- `ls` - List files\n- `cd <dir>` - Change directory\n- `cat <file>` - Read file content\n- `read <id>` - Read article\n- `open <file>` - Preview file',
+                    meta: { author: 'System', date: '2024-01-01' }
+                },
+                '/home/articles/frontend/1.md': {
+                    type: 'md',
+                    title: 'Xterm.js 终端开发指南',
+                    content: '# Xterm.js 终端开发指南\n\n本文介绍如何使用 Xterm.js 构建终端应用。\n\n## 安装\n```bash\nnpm install xterm\n```\n\n## 基本使用\n```javascript\nconst term = new Terminal();\nterm.open(document.getElementById("terminal"));\nterm.write("Hello World");\n```',
+                    meta: { id: 1, author: 'Dev', date: '2024-01-15', tags: ['Xterm.js', '前端'] }
+                },
+                '/home/articles/frontend/2.md': {
+                    type: 'md',
+                    title: 'CSS Grid 布局详解',
+                    content: '# CSS Grid 布局详解\n\n深入理解 CSS Grid 布局系统。\n\n## 基础概念\nGrid 布局由两个概念组成：\n1. Grid Container（网格容器）\n2. Grid Item（网格项）',
+                    meta: { id: 2, author: 'UI', date: '2024-01-20', tags: ['CSS', '布局'] }
+                },
+                '/home/articles/backend/3.md': {
+                    type: 'md',
+                    title: 'Go WebSocket 实战',
+                    content: '# Go WebSocket 实战\n\n使用 Go 实现 WebSocket 服务器。\n\n## 服务端代码\n```go\nhttp.HandleFunc("/ws", wsHandler)\nhttp.ListenAndServe(":8080", nil)\n```',
+                    meta: { id: 3, author: 'Backend', date: '2024-01-25', tags: ['Go', 'WebSocket'] }
+                },
+                '/home/articles/backend/4.md': {
+                    type: 'md',
+                    title: 'RESTful API 设计原则',
+                    content: '# RESTful API 设计原则\n\nRESTful API 设计的最佳实践。\n\n## HTTP 方法\n- GET - 查询资源\n- POST - 创建资源\n- PUT - 更新资源\n- DELETE - 删除资源',
+                    meta: { id: 4, author: 'API', date: '2024-02-01', tags: ['API', '架构'] }
+                },
+                '/home/articles/devops/5.md': {
+                    type: 'md',
+                    title: 'Docker 容器化部署',
+                    content: '# Docker 容器化部署\n\nDocker 容器化部署实战。\n\n## Dockerfile 示例\n```dockerfile\nFROM nginx:latest\nCOPY . /usr/share/nginx/html\n```',
+                    meta: { id: 5, author: 'Ops', date: '2024-02-05', tags: ['Docker', '容器'] }
+                },
+                '/home/posts/life/6.md': {
+                    type: 'md',
+                    title: '我的 2024 年计划',
+                    content: '# 我的 2024 年计划\n\n新一年的目标与规划。\n\n## 技术目标\n1. 深入学习 Go 语言\n2. 掌握 Kubernetes\n3. 完成博客系统重构',
+                    meta: { id: 6, author: 'Me', date: '2024-01-01', tags: ['计划'] }
+                },
+                '/home/posts/tech/7.md': {
+                    type: 'md',
+                    title: '如何高效学习新技术',
+                    content: '# 如何高效学习新技术\n\n分享我的学习方法与经验。\n\n## 学习方法\n1. 看官方文档\n2. 动手实践\n3. 总结输出',
+                    meta: { id: 7, author: 'Me', date: '2024-01-30', tags: ['学习'] }
+                },
+                '/home/docs/guide.pdf': {
+                    type: 'pdf',
+                    title: '用户指南',
+                    content: '[PDF Document]\n这是一个 PDF 文档示例。\n\n在实际环境中，可以嵌入 PDF 预览组件。',
+                    url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+                    meta: { author: 'System', date: '2024-01-01' }
+                },
+                '/home/docs/design.doc': {
+                    type: 'doc',
+                    title: '设计文档',
+                    content: '[Word Document]\n这是一个 Word 文档示例。\n\n在实际环境中，可以集成文档预览服务。',
+                    url: null,
+                    meta: { author: 'Designer', date: '2024-02-01' }
+                }
+            },
+            
+            // 解析路径（支持相对路径和绝对路径）
+            resolvePath(inputPath) {
+                let targetPath;
+                
+                if (inputPath.startsWith('/')) {
+                    targetPath = inputPath;
+                } else if (inputPath === '~') {
+                    targetPath = '/home';
+                } else if (inputPath.startsWith('../')) {
+                    const parts = cwd.split('/').filter(p => p);
+                    parts.pop();
+                    const relPath = inputPath.replace(/\.\.\//g, '').replace(/\.\//g, '');
+                    const relParts = relPath.split('/').filter(p => p);
+                    relParts.forEach(p => { if (p !== '..') parts.pop(); });
+                    targetPath = '/' + [...parts, ...relPath.replace(/\.\.\//g, '').split('/').filter(p => p && p !== '..')].join('/');
+                } else {
+                    targetPath = cwd === '/home' ? '/home/' + inputPath : cwd + '/' + inputPath;
+                }
+                
+                // 规范化路径
+                const parts = targetPath.split('/').filter(p => p);
+                const normalized = [];
+                for (const part of parts) {
+                    if (part === '..') {
+                        normalized.pop();
+                    } else if (part !== '.') {
+                        normalized.push(part);
+                    }
+                }
+                return '/' + normalized.join('/');
+            },
+            
+            // 检查文件是否存在
+            exists(path) {
+                return this.files.hasOwnProperty(path);
+            },
+            
+            // 获取文件
+            getFile(path) {
+                return this.files[path] || null;
+            },
+            
+            // 列出目录内容
+            listDir(path) {
+                const dirs = [];
+                const files = [];
+                const prefix = path === '/home' ? '/home/' : path + '/';
+                
+                for (const filePath of Object.keys(this.files)) {
+                    if (filePath.startsWith(prefix)) {
+                        const remainder = filePath.substring(prefix.length);
+                        const firstPart = remainder.split('/')[0];
+                        
+                        if (firstPart && !dirs.includes(firstPart)) {
+                            dirs.push(firstPart);
+                        }
+                    }
+                }
+                
+                // 添加直接在该目录下的文件
+                for (const filePath of Object.keys(this.files)) {
+                    const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+                    if (dir === path && !files.includes(filePath)) {
+                        files.push(filePath.substring(path.length + 1));
+                    }
+                }
+                
+                return { dirs, files };
+            },
+            
+            // 根据 ID 查找文章
+            findById(id) {
+                for (const path of Object.keys(this.files)) {
+                    const file = this.files[path];
+                    if (file.meta && file.meta.id === id) {
+                        return { path, ...file };
+                    }
+                }
+                return null;
+            },
+            
+            // 获取文件图标
+            getIcon(filename) {
+                const ext = filename.split('.').pop().toLowerCase();
+                const icons = {
+                    md: '📄', pdf: '📕', doc: '📘', docx: '📘',
+                    txt: '📝', jpg: '🖼️', png: '🖼️', gif: '🖼️',
+                    mp4: '🎬', zip: '📦', js: '📜', ts: '📜',
+                    html: '🌐', css: '🎨', json: '📋'
+                };
+                return icons[ext] || '📄';
+            }
+        };
+        
+        // 兼容旧的 categories 结构（用于浏览器显示）
         const categories = {
             articles: {
                 name: '技术文章',
@@ -660,50 +822,117 @@
         }
 
         function viewFile(filename) {
-            if (filename === 'readme.md') {
-                term.writeln('\x1b[1m# WebShell Blog\x1b[0m');
-                term.writeln('\x1b[32mA terminal-style blog system\x1b[0m');
-                term.writeln('');
-                term.writeln('\x1b[33mCommands:\x1b[0m');
-                term.writeln('  ls          - list files');
-                term.writeln('  cd <dir>    - change directory');
-                term.writeln('  cat <file>  - read file');
-                term.writeln('  read <id>   - read article');
-                term.writeln('');
-                term.writeln('\x1b[34m' + cwd + '$\x1b[0m ');
-            } else if (filename.endsWith('.md')) {
-                // 尝试作为文章 ID 读取
-                const id = parseInt(filename.replace('.md', ''));
-                if (!isNaN(id)) {
-                    readArticleInTerminal(id);
-                } else {
-                    term.writeln('\x1b[31mcat: file not found: ' + filename + '\x1b[0m');
-                }
-            } else {
-                term.writeln('\x1b[33mcat: ' + filename + ': is a directory\x1b[0m');
+            // 解析路径
+            const fullPath = VirtualFileSystem.resolvePath(filename);
+            const file = VirtualFileSystem.getFile(fullPath);
+            
+            if (!file) {
+                term.writeln('\x1b[31mcat: ' + filename + ': No such file or directory\x1b[0m');
+                return;
+            }
+            
+            // 根据文件类型处理
+            switch (file.type) {
+                case 'md':
+                    // 在终端显示 Markdown 内容
+                    readArticleInTerminal(fullPath);
+                    break;
+                case 'pdf':
+                case 'doc':
+                    // 这些类型需要在预览面板打开
+                    previewFile(fullPath);
+                    break;
+                default:
+                    term.writeln(file.content || '\x1b[33m[Binary file - use "open" to preview]\x1b[0m');
             }
         }
         
-        function readArticleInTerminal(id) {
-            let article = null;
-            Object.values(categories).forEach(cat => {
-                Object.values(cat.children).forEach(sub => {
-                    const found = sub.articles.find(a => a.id === id);
-                    if (found) article = found;
-                });
-            });
-            
-            if (article) {
-                term.writeln('\x1b[1m\x1b[36m# ' + article.title + '\x1b[0m');
-                term.writeln('\x1b[90mDate: ' + article.date + ' | Author: ' + article.author + '\x1b[0m');
-                term.writeln('');
-                term.writeln(article.desc);
-                term.writeln('');
-                term.writeln('\x1b[90mTags: ' + article.tags.join(', ') + '\x1b[0m');
-                term.writeln('');
-            } else {
-                term.writeln('\x1b[31mcat: article ' + id + ' not found\x1b[0m');
+        // 在终端读取文章
+        function readArticleInTerminal(filePath) {
+            const file = VirtualFileSystem.getFile(filePath);
+            if (!file) {
+                term.writeln('\x1b[31mcat: file not found\x1b[0m');
+                return;
             }
+            
+            term.writeln('\x1b[1m\x1b[36m# ' + file.title + '\x1b[0m');
+            if (file.meta) {
+                let metaStr = '\x1b[90m';
+                if (file.meta.date) metaStr += 'Date: ' + file.meta.date;
+                if (file.meta.author) metaStr += ' | Author: ' + file.meta.author;
+                if (file.meta.tags) metaStr += ' | Tags: ' + file.meta.tags.join(', ');
+                metaStr += '\x1b[0m';
+                term.writeln(metaStr);
+            }
+            term.writeln('');
+            
+            // 简单渲染 Markdown（标题、加粗、代码块）
+            const content = file.content || '';
+            const lines = content.split('\n');
+            lines.forEach(line => {
+                if (line.startsWith('# ')) {
+                    term.writeln('\x1b[1m\x1b[36m' + line.substring(2) + '\x1b[0m');
+                } else if (line.startsWith('## ')) {
+                    term.writeln('\x1b[1m\x1b[33m' + line.substring(3) + '\x1b[0m');
+                } else if (line.startsWith('```')) {
+                    term.writeln('\x1b[90m' + line + '\x1b[0m');
+                } else if (line.startsWith('- ')) {
+                    term.writeln('  \x1b[32m•\x1b[0m ' + line.substring(2));
+                } else if (line.startsWith('1. ') || line.startsWith('2. ') || line.startsWith('3. ')) {
+                    term.writeln('  \x1b[33m' + line + '\x1b[0m');
+                } else if (line.startsWith('|')) {
+                    term.writeln('\x1b[90m' + line + '\x1b[0m');
+                } else {
+                    term.writeln(line || '');
+                }
+            });
+            term.writeln('');
+        }
+        
+        // 预览文件（侧边栏预览面板）
+        function previewFile(filePath) {
+            const file = VirtualFileSystem.getFile(filePath);
+            if (!file) {
+                term.writeln('\x1b[31mopen: file not found\x1b[0m');
+                return;
+            }
+            
+            document.getElementById('preview-title').textContent = file.title || filePath.split('/').pop();
+            
+            let metaHtml = '';
+            if (file.meta) {
+                if (file.meta.date) metaHtml += '📅 ' + file.meta.date;
+                if (file.meta.author) metaHtml += ' | 👤 ' + file.meta.author;
+                if (file.meta.tags) {
+                    metaHtml += ' | ' + file.meta.tags.map(t => `<span style="background:#333;padding:2px 8px;border-radius:4px;margin-right:5px;">${t}</span>`).join('');
+                }
+                if (file.meta.id) metaHtml += `\n                    <span style="color:var(--green)">[ID: ${file.meta.id}]</span>`;
+            }
+            metaHtml += `\n                    <span style="color:var(--cyan)">[${file.type.toUpperCase()}]</span>`;
+            document.getElementById('preview-meta').innerHTML = metaHtml;
+            
+            let content = '';
+            if (file.type === 'pdf' || file.type === 'doc') {
+                if (file.url) {
+                    content = `<div style="padding:20px;text-align:center;"><p style="color:var(--yellow);">📄 ${file.title}</p><p style="color:var(--comment);margin-top:10px;">This is a ${file.type.toUpperCase()} document.</p><p style="color:var(--comment);">In production, this would display the embedded document.</p><a href="${file.url}" target="_blank" style="display:inline-block;margin-top:20px;padding:10px 20px;background:var(--cyan);color:var(--bg);text-decoration:none;border-radius:4px;">Download/Open</a></div>`;
+                } else {
+                    content = `<div style="padding:20px;"><pre style="background:var(--bg);padding:15px;border-radius:4px;border:1px solid var(--border);">${file.content}</pre></div>`;
+                }
+            } else {
+                content = `<pre style="background:var(--bg);padding:15px;border-radius:4px;border:1px solid var(--border);white-space:pre-wrap;word-wrap:break-word;line-height:1.6;">${escapeHtml(file.content || '')}</pre>`;
+            }
+            
+            document.getElementById('preview-content').innerHTML = content;
+            document.getElementById('preview-panel').classList.add('active');
+            document.getElementById('browser-panel').classList.add('narrow');
+            
+            term.writeln('\x1b[32m[Previewing: ' + file.title + ']\x1b[0m');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         function previewArticle(id) {
@@ -1007,20 +1236,20 @@
                     showHelp();
                     break;
                 case 'ls':
-                    ls(args);
+                case 'll':
+                    ls(args, c === 'll');
                     break;
                 case 'cd':
                     cd(args);
-                    break;
-                case 'ls':
-                case 'll':
-                    ls(args, c === 'll');
                     break;
                 case 'cat':
                     cat(args);
                     break;
-                case 'cd':
-                    cd(args);
+                case 'open':
+                    open(args);
+                    break;
+                case 'read':
+                    readArticle(args);
                     break;
                 case 'pwd':
                     term.writeln(cwd);
@@ -1032,9 +1261,6 @@
                     term.writeln('\x1b[90mType \x1b[36m"help"\x1b[90m for available commands.\x1b[0m');
                     term.writeln('');
                     term.write('\x1b[1m\x1b[36m' + cwd + '$\x1b[0m ');
-                    break;
-                case 'read':
-                    readArticle(args);
                     break;
                 case 'echo':
                     echo(args);
@@ -1053,9 +1279,6 @@
                 case 'history':
                     history();
                     break;
-                case 'man':
-                    showHelp();
-                    break;
                 case 'exit':
                     term.writeln('\x1b[33mLogout not supported in web mode.\x1b[0m');
                     break;
@@ -1072,78 +1295,99 @@
             term.writeln('');
             term.writeln('\x1b[33mNavigation:\x1b[0m');
             term.writeln('  \x1b[36mls\x1b[0m              List directory contents');
-            term.writeln('  \x1b[36mll\x1b[0m              List with details (like ls -la)');
+            term.writeln('  \x1b[36mll\x1b[0m              List with details');
             term.writeln('  \x1b[36mcd <dir>\x1b[0m         Change directory');
             term.writeln('  \x1b[36mpwd\x1b[0m              Print working directory');
             term.writeln('');
-            term.writeln('\x1b[33mBlog Operations:\x1b[0m');
-            term.writeln('  \x1b[36mcat <file>\x1b[0m        Display file (e.g. cat 1.md)');
-            term.writeln('  \x1b[36mread <id>\x1b[0m          Read article in preview panel');
-            term.writeln('  \x1b[36mlist\x1b[0m             Show article list');
-            term.writeln('');
-            term.writeln('\x1b[33mDirectory Structure:\x1b[0m');
-            term.writeln('  \x1b[36m/home\x1b[0m              Home directory');
-            term.writeln('    \x1b[36m├─ articles/\x1b[0m      Technical articles');
-            term.writeln('    \x1b[36m│   ├─ frontend/\x1b[0m   Frontend articles');
-            term.writeln('    \x1b[36m│   ├─ backend/\x1b[0m    Backend articles');
-            term.writeln('    \x1b[36m│   └─ devops/\x1b[0m     DevOps articles');
-            term.writeln('    \x1b[36m└─ posts/\x1b[0m          Personal posts');
+            term.writeln('\x1b[33mFile Operations:\x1b[0m');
+            term.writeln('  \x1b[36mcat <file>\x1b[0m        Read file in terminal');
+            term.writeln('  \x1b[36mopen <file>\x1b[0m       Preview file in side panel');
+            term.writeln('  \x1b[36mread <id>\x1b[0m          Read article by ID');
             term.writeln('');
             term.writeln('\x1b[33mSystem:\x1b[0m');
             term.writeln('  \x1b[36mclear\x1b[0m             Clear screen');
             term.writeln('  \x1b[36mecho <text>\x1b[0m       Print text');
             term.writeln('  \x1b[36mhistory\x1b[0m            Show command history');
-            term.writeln('  \x1b[36muname [-a]\x1b[0m        System information');
             term.writeln('  \x1b[36mabout\x1b[0m              About this blog');
             term.writeln('');
-            term.writeln('\x1b[90mUse \x1b[36m↑/↓\x1b[90m arrows for history, \x1b[36mTab\x1b[90m for autocomplete\x1b[0m');
+            term.writeln('\x1b[90mTip: Tab for autocomplete, ↑↓ for history\x1b[0m');
         }
 
         function ls(args, isLl = false) {
             const showLong = isLl || args.includes('-l') || args.includes('-la') || args.includes('-al');
+            const showAll = args.includes('-a') || args.includes('-al') || args.includes('-la');
             
-            if (cwd === '/home') {
-                const total = 3;
-                term.writeln('\x1b[1mtotal ' + total + '\x1b[0m');
-                if (showLong) {
-                    term.writeln('\x1b[36mdrwxr-xr-x   2 user  staff   128 Jan 15 10:00 \x1b[0marticles/');
-                    term.writeln('\x1b[36mdrwxr-xr-x   2 user  staff   128 Jan 15 10:00 \x1b[0mposts/');
-                    term.writeln('\x1b[33m-rw-r--r--   1 user  staff   512 Jan 15 10:00 \x1b[0mreadme.md');
+            // 解析目标目录
+            let targetPath = cwd;
+            const pathArg = args.find(a => !a.startsWith('-'));
+            if (pathArg) {
+                targetPath = VirtualFileSystem.resolvePath(pathArg);
+            }
+            
+            const listing = VirtualFileSystem.listDir(targetPath);
+            
+            // 父目录链接
+            if (showAll && targetPath !== '/home') {
+                term.writeln('\x1b[33mdrwxr-xr-x   - \x1b[90m..\x1b[0m');
+            }
+            
+            // 目录列表
+            const allDirs = [...listing.dirs].sort();
+            const allFiles = [...listing.files].sort();
+            
+            if (showLong) {
+                term.writeln('\x1b[1mtotal ' + (allDirs.length + allFiles.length) + '\x1b[0m');
+                
+                allDirs.forEach(dir => {
+                    const icon = VirtualFileSystem.getIcon(dir + '/');
+                    term.writeln('\x1b[36mdrwxr-xr-x   2 \x1b[90muser  staff   \x1b[36m' + dir + '/\x1b[0m');
+                });
+                
+                allFiles.forEach(file => {
+                    const filePath = targetPath + '/' + file;
+                    const fileData = VirtualFileSystem.getFile(filePath);
+                    const icon = VirtualFileSystem.getIcon(file);
+                    const size = fileData ? (fileData.content ? fileData.content.length : 0) : 0;
+                    const date = fileData?.meta?.date || '2024-01-01';
+                    term.writeln('\x1b[33m-rw-r--r--   1 \x1b[90muser  staff  \x1b[33m' + String(size).padStart(5) + ' \x1b[90m' + date + ' \x1b[33m' + file + '\x1b[0m');
+                });
+            } else {
+                const items = [];
+                allDirs.forEach(dir => items.push('\x1b[36m' + dir + '/'));
+                allFiles.forEach(file => items.push('\x1b[33m' + file));
+                
+                if (items.length === 0) {
+                    term.writeln('\x1b[90m(empty directory)\x1b[0m');
                 } else {
-                    term.writeln('\x1b[36marticles/\x1b[0m  \x1b[36mposts/\x1b[0m  \x1b[33mreadme.md\x1b[0m');
-                }
-            } else if (cwd.startsWith('/home/articles') || cwd.startsWith('/home/posts')) {
-                const parts = cwd.split('/');
-                const catKey = parts[2];
-                const cat = categories[catKey];
-                if (cat) {
-                    if (parts.length === 3) {
-                        const dirs = Object.values(cat.children);
-                        term.writeln('\x1b[1mtotal ' + dirs.length + '\x1b[0m');
-                        dirs.forEach(sub => {
-                            if (showLong) {
-                                term.writeln('\x1b[36mdrwxr-xr-x   ' + String(sub.articles.length).padStart(2) + ' \x1b[90muser  staff   \x1b[0m' + sub.name + '/');
-                            } else {
-                                term.writeln('\x1b[36m' + sub.name + '/\x1b[0m');
-                            }
-                        });
-                    } else {
-                        const subKey = parts[3];
-                        const sub = cat.children[subKey];
-                        if (sub) {
-                            term.writeln('\x1b[1mtotal ' + sub.articles.length + '\x1b[0m');
-                            sub.articles.forEach(art => {
-                                if (showLong) {
-                                    const size = art.desc.length + 100;
-                                    term.writeln('\x1b[33m-rw-r--r--   1 \x1b[90muser  staff  \x1b[0m' + String(size).padStart(5) + ' \x1b[90m' + art.date + ' \x1b[33m' + art.id + '.md\x1b[0m');
-                                } else {
-                                    term.writeln('\x1b[33m' + art.id + '.md\x1b[0m');
-                                }
-                            });
-                        }
-                    }
+                    term.writeln(items.join('  '));
                 }
             }
+        }
+        
+        // open 命令 - 在预览面板打开文件
+        function open(args) {
+            if (args.length === 0) {
+                term.writeln('\x1b[31mopen: missing file operand\x1b[0m');
+                return;
+            }
+            
+            const filePath = VirtualFileSystem.resolvePath(args[0]);
+            const file = VirtualFileSystem.getFile(filePath);
+            
+            if (!file) {
+                // 尝试作为目录
+                const listing = VirtualFileSystem.listDir(filePath);
+                if (listing.dirs.length > 0 || listing.files.length > 0) {
+                    term.writeln('\x1b[33mopen: ' + args[0] + ': Is a directory\x1b[0m');
+                    term.writeln('\x1b[90mUse "cd" to enter directory, "ls" to list contents\x1b[0m');
+                } else {
+                    term.writeln('\x1b[31mopen: ' + args[0] + ': No such file\x1b[0m');
+                }
+                return;
+            }
+            
+            previewFile(filePath);
+        }
         }
 
         function cd(args) {
@@ -1225,7 +1469,15 @@
                 term.writeln('\x1b[31mread: invalid article id: ' + args[0] + '\x1b[0m');
                 return;
             }
-            readArticleInTerminal(id);
+            
+            // 使用 VirtualFileSystem 查找文章
+            const article = VirtualFileSystem.findById(id);
+            if (article) {
+                // 在终端读取
+                readArticleInTerminal(article.path);
+            } else {
+                term.writeln('\x1b[31mread: article ' + id + ' not found\x1b[0m');
+            }
         }
 
         function echo(args) {
