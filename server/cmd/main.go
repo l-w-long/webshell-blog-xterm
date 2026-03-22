@@ -4,99 +4,67 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os/exec"
 	"sync"
 
-	"github.com/gorilla/websocket"
+	"webshellblog/server/internal/application"
+	"webshellblog/server/internal/domain"
+	"webshellblog/server/internal/infrastructure"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+/**
+ * WebShell Blog Server
+ * 采用 DDD 架构重构，支持设计模式和领域模型
+ * 
+ * @author WebShell Blog
+ * @since 2026-03-22
+ */
+
+var upgrader = infrastructure.WebSocketHandler
+
+type TerminalServer struct {
+	terminalService  *application.TerminalService
+	commandService   *application.CommandService
+	globalTerminal   *domain.Terminal
+	broadcast        chan []byte
+	mu               sync.RWMutex
 }
 
-type Client struct {
-	conn   *websocket.Conn
-	send   chan []byte
-	term   *Terminal
-	width  int
-	height int
-}
-
-type Terminal struct {
-	width   int
-	height  int
-	clients map[*Client]bool
-	broadcast chan []byte
-	mu      sync.RWMutex
-}
-
-func NewTerminal() *Terminal {
-	return &Terminal{
-		width:    80,
-		height:   24,
-		clients:  make(map[*Client]bool),
-		broadcast: make(chan []byte, 256),
+func NewTerminalServer() *TerminalServer {
+	return &TerminalServer{
+		terminalService: application.NewTerminalService(),
+		commandService:  application.NewCommandService(),
+		globalTerminal:  domain.NewTerminal("global"),
+		broadcast:       make(chan []byte, 256),
 	}
 }
 
-func (t *Terminal) Register(client *Client) {
-	t.mu.Lock()
-	t.clients[client] = true
-	t.mu.Unlock()
-}
-
-func (t *Terminal) Unregister(client *Client) {
-	t.mu.Lock()
-	delete(t.clients, client)
-	close(client.send)
-	t.mu.Unlock()
-}
-
-func (t *Terminal) Broadcast(msg []byte) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	for client := range t.clients {
-		select {
-		case client.send <- msg:
-		default:
-			close(client.send)
-			delete(t.clients, client)
-		}
+func (s *TerminalServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Handle(w, r)
+	if err != nil {
+		return
 	}
+
+	client := domain.NewClient("client-"+r.RemoteAddr, conn)
+	client.SetTerminal(s.globalTerminal)
+
+	go s.writePump(client)
+	go s.readPump(client)
 }
 
-func (t *Terminal) Resize(width, height int) {
-	t.mu.Lock()
-	t.width = width
-	t.height = height
-	t.mu.Unlock()
-}
-
-type Message struct {
-	Type    string `json:"type"`
-	Content string `json:"content,omitempty"`
-	URL     string `json:"url,omitempty"`
-	Width   int    `json:"width,omitempty"`
-	Height  int    `json:"height,omitempty"`
-	Cols    int    `json:"cols,omitempty"`
-	Rows    int    `json:"rows,omitempty"`
-}
-
-func (c *Client) readPump() {
+func (s *TerminalServer) readPump(client *domain.Client) {
 	defer func() {
-		c.term.Unregister(c)
-		c.conn.Close()
+		client.Disconnect()
+		conn := client.Conn.(*websocket.Conn)
+		conn.Close()
 	}()
 
 	for {
-		_, message, err := c.conn.ReadMessage()
+		_, message, err := client.Conn.(*websocket.Conn).ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
@@ -104,45 +72,45 @@ func (c *Client) readPump() {
 			break
 		}
 
-		var msg Message
+		var msg domain.Message
 		if err := json.Unmarshal(message, &msg); err != nil {
-			c.term.Broadcast(message)
+			s.globalTerminal.Broadcast(message)
 			continue
 		}
 
 		switch msg.Type {
 		case "command":
-			c.executeCommand(msg.Content)
+			s.executeCommand(client, msg.Content)
 		case "resize":
-			c.width = msg.Cols
-			c.height = msg.Rows
-			c.term.Resize(msg.Cols, msg.Rows)
+			s.globalTerminal.Resize(msg.Cols, msg.Rows)
 		}
 	}
 }
 
-func (c *Client) writePump() {
+func (s *TerminalServer) writePump(client *domain.Client) {
+	conn := client.Conn.(*websocket.Conn)
 	defer func() {
-		c.conn.Close()
+		client.Disconnect()
+		conn.Close()
 	}()
 
 	for {
-		message, ok := <-c.send
+		message, ok := <-client.SendChan
 		if !ok {
-			c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			conn.WriteMessage(websocket.CloseMessage, []byte{})
 			return
 		}
 
-		w, err := c.conn.NextWriter(websocket.TextMessage)
+		w, err := conn.NextWriter(websocket.TextMessage)
 		if err != nil {
 			return
 		}
 		w.Write(message)
 
-		n := len(c.send)
+		n := len(client.SendChan)
 		for i := 0; i < n; i++ {
 			w.Write([]byte{'\n'})
-			w.Write(<-c.send)
+			w.Write(<-client.SendChan)
 		}
 
 		if err := w.Close(); err != nil {
@@ -151,44 +119,48 @@ func (c *Client) writePump() {
 	}
 }
 
-func (c *Client) executeCommand(cmd string) {
+func (s *TerminalServer) executeCommand(client *domain.Client, cmd string) {
 	log.Printf("Executing command: %s", cmd)
 
-	args := parseCommand(cmd)
-	if len(args) == 0 {
+	s.globalTerminal.AddToHistory(cmd)
+
+	switch cmd {
+	case "clear":
+		msg := domain.Message{Type: "clear"}
+		data, _ := json.Marshal(msg)
+		s.globalTerminal.Broadcast(data)
 		return
 	}
 
-	switch args[0] {
-	case "img", "image":
-		if len(args) > 1 {
-			c.handleImageCommand(args[1])
-		}
+	parts := parseCommand(cmd)
+	if len(parts) == 0 {
 		return
-	case "clear":
-		msg := Message{Type: "clear"}
-		data, _ := json.Marshal(msg)
-		c.term.Broadcast(data)
+	}
+
+	if parts[0] == "img" || parts[0] == "image" {
+		if len(parts) > 1 {
+			s.handleImageCommand(client, parts[1])
+		}
 		return
 	}
 
 	command := exec.Command("sh", "-c", cmd)
-	command.Stdout = c
-	command.Stderr = c
+	command.Stdout = client
+	command.Stderr = client
 
 	if err := command.Run(); err != nil {
-		c.Write([]byte("Error: " + err.Error() + "\r\n"))
+		client.Send([]byte("Error: " + err.Error() + "\r\n"))
 	}
 }
 
-func (c *Client) handleImageCommand(url string) {
+func (s *TerminalServer) handleImageCommand(client *domain.Client, url string) {
 	data, err := fetchImage(url)
 	if err != nil {
-		c.Write([]byte("\r\n\x1b[31mFailed to fetch image: " + err.Error() + "\x1b[0m\r\n"))
+		client.Send([]byte("\r\n\x1b[31mFailed to fetch image: " + err.Error() + "\x1b[0m\r\n"))
 		return
 	}
 
-	msg := Message{
+	msg := domain.Message{
 		Type:    "image",
 		URL:     url,
 		Width:   300,
@@ -196,16 +168,16 @@ func (c *Client) handleImageCommand(url string) {
 	}
 
 	jsonData, _ := json.Marshal(msg)
-	c.term.Broadcast(jsonData)
+	s.globalTerminal.Broadcast(jsonData)
 }
 
-func (c *Client) Write(p []byte) (n int, err error) {
-	msg := Message{
+func (c *domain.Client) Write(p []byte) (n int, err error) {
+	msg := domain.Message{
 		Type:    "output",
 		Content: string(p),
 	}
 	data, _ := json.Marshal(msg)
-	c.term.Broadcast(data)
+	c.Send(data)
 	return len(p), nil
 }
 
@@ -217,7 +189,7 @@ func parseCommand(cmd string) []string {
 
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
-		
+
 		if !inQuote && (c == '"' || c == '\'') {
 			inQuote = true
 			quoteChar = c
@@ -250,28 +222,6 @@ func fetchImage(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("upgrade error:", err)
-		return
-	}
-
-	term := globalTerminal
-	client := &Client{
-		conn:   conn,
-		send:   make(chan []byte, 256),
-		term:   term,
-		width:  80,
-		height: 24,
-	}
-
-	term.Register(client)
-
-	go client.writePump()
-	go client.readPump()
-}
-
 func serveStatic(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		http.ServeFile(w, r, "./web/index.html")
@@ -282,18 +232,16 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-var globalTerminal *Terminal
-
 func main() {
 	addr := flag.String("addr", ":8080", "http service address")
 	flag.Parse()
 
-	globalTerminal = NewTerminal()
+	server := NewTerminalServer()
 
-	http.HandleFunc("/ws", handleWebSocket)
+	http.HandleFunc("/ws", server.handleWebSocket)
 	http.HandleFunc("/", serveStatic)
 
-	log.Printf("Server starting on %s", *addr)
+	fmt.Printf("Server starting on %s\n", *addr)
 	if err := http.ListenAndServe(*addr, nil); err != nil {
 		log.Fatal("ListenAndServe:", err)
 	}
