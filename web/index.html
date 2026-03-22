@@ -671,6 +671,38 @@
                 term.writeln('  read <id>   - read article');
                 term.writeln('');
                 term.writeln('\x1b[34m' + cwd + '$\x1b[0m ');
+            } else if (filename.endsWith('.md')) {
+                // 尝试作为文章 ID 读取
+                const id = parseInt(filename.replace('.md', ''));
+                if (!isNaN(id)) {
+                    readArticleInTerminal(id);
+                } else {
+                    term.writeln('\x1b[31mcat: file not found: ' + filename + '\x1b[0m');
+                }
+            } else {
+                term.writeln('\x1b[33mcat: ' + filename + ': is a directory\x1b[0m');
+            }
+        }
+        
+        function readArticleInTerminal(id) {
+            let article = null;
+            Object.values(categories).forEach(cat => {
+                Object.values(cat.children).forEach(sub => {
+                    const found = sub.articles.find(a => a.id === id);
+                    if (found) article = found;
+                });
+            });
+            
+            if (article) {
+                term.writeln('\x1b[1m\x1b[36m# ' + article.title + '\x1b[0m');
+                term.writeln('\x1b[90mDate: ' + article.date + ' | Author: ' + article.author + '\x1b[0m');
+                term.writeln('');
+                term.writeln(article.desc);
+                term.writeln('');
+                term.writeln('\x1b[90mTags: ' + article.tags.join(', ') + '\x1b[0m');
+                term.writeln('');
+            } else {
+                term.writeln('\x1b[31mcat: article ' + id + ' not found\x1b[0m');
             }
         }
 
@@ -1189,19 +1221,11 @@
                 return;
             }
             const id = parseInt(args[0]);
-            let found = false;
-            Object.values(categories).forEach(cat => {
-                Object.values(cat.children).forEach(sub => {
-                    const art = sub.articles.find(a => a.id === id);
-                    if (art) {
-                        previewArticle(art.id);
-                        found = true;
-                    }
-                });
-            });
-            if (!found) {
-                term.writeln('\x1b[31mread: article ' + id + ' not found\x1b[0m');
+            if (isNaN(id)) {
+                term.writeln('\x1b[31mread: invalid article id: ' + args[0] + '\x1b[0m');
+                return;
             }
+            readArticleInTerminal(id);
         }
 
         function echo(args) {
