@@ -73,9 +73,27 @@
         .tui-main {
             display: flex;
             flex: 1;
-            gap: 5px;
+            gap: 0;
             overflow: hidden;
         }
+        
+        /* Resizable Panels Container */
+        .panels-wrapper {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* Resize Handle */
+        .resize-handle {
+            width: 5px;
+            background: var(--border);
+            cursor: col-resize;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+        .resize-handle:hover { background: var(--cyan); }
+        .resize-handle.active { background: var(--cyan); }
         
         /* TUI Panel */
         .tui-panel {
@@ -85,10 +103,21 @@
             border: 1px solid var(--border);
             border-radius: 0;
             overflow: hidden;
+            flex-shrink: 0;
         }
         
-        .tui-panel:first-child { flex: 1; }
-        .tui-panel:last-child { flex: 1; }
+        #terminal-panel {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        #browser-panel {
+            width: 280px;
+        }
+        
+        #browser-panel.narrow {
+            width: 220px;
+        }
         
         /* TUI Panel Header */
         .tui-panel-header {
@@ -134,9 +163,9 @@
         
         .file-item {
             display: flex;
-            align-items: center;
-            padding: 8px 15px;
-            border-bottom: 1px solid var(--bg);
+            flex-direction: column;
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border);
             cursor: pointer;
             transition: background 0.1s;
         }
@@ -145,14 +174,33 @@
         .file-item.selected { background: var(--bg); }
         .file-item.selected .file-name { color: var(--pink); }
         
-        .file-icon { margin-right: 10px; width: 20px; text-align: center; }
+        .file-item-header {
+            display: flex;
+            align-items: center;
+        }
+        
+        .file-icon { margin-right: 8px; width: 18px; text-align: center; font-size: 14px; }
         .file-icon.folder { color: var(--cyan); }
         .file-icon.file { color: var(--fg); }
         .file-icon.article { color: var(--yellow); }
         .file-icon.back { color: var(--orange); }
         
-        .file-name { flex: 1; font-size: 13px; }
-        .file-meta { color: var(--comment); font-size: 11px; }
+        .file-name { 
+            flex: 1; 
+            font-size: 13px; 
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .file-meta { 
+            color: var(--comment); 
+            font-size: 11px;
+            margin-top: 4px;
+            padding-left: 26px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         
         /* Breadcrumb */
         .tui-breadcrumb {
@@ -192,7 +240,8 @@
         .preview-panel.active { 
             display: flex;
             flex-direction: column;
-            flex: 1.5;
+            flex: 2;
+            min-width: 400px;
         }
         
         .preview-header {
@@ -278,38 +327,43 @@
         
         <!-- Main Content -->
         <div class="tui-main">
-            <!-- Terminal Panel -->
-            <div class="tui-panel">
-                <div class="tui-panel-header">
-                    <div class="tui-panel-title">Terminal</div>
+            <div class="panels-wrapper">
+                <!-- Terminal Panel -->
+                <div class="tui-panel" id="terminal-panel">
+                    <div class="tui-panel-header">
+                        <div class="tui-panel-title">Terminal</div>
+                    </div>
+                    <div class="tui-panel-content">
+                        <div id="terminal"></div>
+                    </div>
                 </div>
-                <div class="tui-panel-content">
-                    <div id="terminal"></div>
+                
+                <!-- Resize Handle -->
+                <div class="resize-handle" id="resize-handle"></div>
+                
+                <!-- Browser Panel -->
+                <div class="tui-panel" id="browser-panel">
+                    <div class="tui-panel-header">
+                        <div class="tui-panel-title">Explorer</div>
+                        <div class="browser-path" id="browser-path">~</div>
+                    </div>
+                    <div class="tui-breadcrumb" id="breadcrumb">
+                        <span onclick="navigateTo('/home')">~</span>
+                    </div>
+                    <div class="tui-panel-content file-list" id="file-list">
+                        <!-- Dynamic content -->
+                    </div>
                 </div>
-            </div>
-            
-            <!-- Browser Panel -->
-            <div class="tui-panel" id="browser-panel">
-                <div class="tui-panel-header">
-                    <div class="tui-panel-title">Explorer</div>
-                    <div class="browser-path" id="browser-path">~</div>
+                
+                <!-- Preview Panel -->
+                <div class="preview-panel" id="preview-panel">
+                    <div class="preview-header">
+                        <div class="preview-title" id="preview-title">Article Preview</div>
+                        <button class="preview-close" onclick="closePreview()">[x] close</button>
+                    </div>
+                    <div class="preview-meta" id="preview-meta"></div>
+                    <div class="preview-content" id="preview-content"></div>
                 </div>
-                <div class="tui-breadcrumb" id="breadcrumb">
-                    <span onclick="navigateTo('/home')">~</span>
-                </div>
-                <div class="tui-panel-content file-list" id="file-list">
-                    <!-- Dynamic content -->
-                </div>
-            </div>
-            
-            <!-- Preview Panel -->
-            <div class="preview-panel" id="preview-panel">
-                <div class="preview-header">
-                    <div class="preview-title" id="preview-title">Article Preview</div>
-                    <button class="preview-close" onclick="closePreview()">[x] close</button>
-                </div>
-                <div class="preview-meta" id="preview-meta"></div>
-                <div class="preview-content" id="preview-content"></div>
             </div>
         </div>
         
@@ -476,39 +530,49 @@
                 let html = '';
                 Object.keys(categories).forEach(key => {
                     const cat = categories[key];
+                    const desc = cat.name === '技术文章' ? '前端、后端、运维等技术文章' : '生活随笔与个人分享';
                     html += `
                         <div class="file-item" onclick="enterCategory('${key}')">
-                            <span class="file-icon folder">${cat.icon}</span>
-                            <span class="file-name">${cat.name}</span>
-                            <span class="file-meta">分类</span>
+                            <div class="file-item-header">
+                                <span class="file-icon folder">${cat.icon}</span>
+                                <span class="file-name">${cat.name}</span>
+                            </div>
+                            <span class="file-meta">${desc}</span>
                         </div>
                     `;
                 });
                 html += `
                     <div class="file-item" onclick="viewFile('readme.md')">
-                        <span class="file-icon file">📄</span>
-                        <span class="file-name">readme.md</span>
-                        <span class="file-meta">帮助</span>
+                        <div class="file-item-header">
+                            <span class="file-icon file">📄</span>
+                            <span class="file-name">readme.md</span>
+                        </div>
+                        <span class="file-meta">使用帮助与命令说明</span>
                     </div>
                 `;
                 list.innerHTML = html;
             } else if (parts.length === 2 && categories[parts[1]]) {
                 // /home/articles 或 /home/posts - 显示子分类
                 const cat = categories[parts[1]];
+                const catDesc = parts[1] === 'articles' ? '技术文章分类' : '随笔文章分类';
                 let html = `
                     <div class="file-item" onclick="goBack()">
-                        <span class="file-icon folder">↩️</span>
-                        <span class="file-name">..</span>
-                        <span class="file-meta">返回上级</span>
+                        <div class="file-item-header">
+                            <span class="file-icon back">↩️</span>
+                            <span class="file-name">返回上级</span>
+                        </div>
                     </div>
                 `;
                 Object.keys(cat.children).forEach(key => {
                     const sub = cat.children[key];
+                    const subDesc = sub.articles.length > 0 ? sub.articles[0].desc.substring(0, 20) + '...' : '';
                     html += `
                         <div class="file-item" onclick="enterSubCategory('${parts[1]}', '${key}')">
-                            <span class="file-icon folder">${sub.icon}</span>
-                            <span class="file-name">${sub.name}</span>
-                            <span class="file-meta">${sub.articles.length} 篇</span>
+                            <div class="file-item-header">
+                                <span class="file-icon folder">${sub.icon}</span>
+                                <span class="file-name">${sub.name}</span>
+                            </div>
+                            <span class="file-meta">${sub.articles.length} 篇文章 · ${subDesc}</span>
                         </div>
                     `;
                 });
@@ -522,17 +586,20 @@
                 if (sub) {
                     let html = `
                         <div class="file-item" onclick="goBack()">
-                            <span class="file-icon folder">↩️</span>
-                            <span class="file-name">..</span>
-                            <span class="file-meta">返回上级</span>
+                            <div class="file-item-header">
+                                <span class="file-icon back">↩️</span>
+                                <span class="file-name">返回上级</span>
+                            </div>
                         </div>
                     `;
                     sub.articles.forEach(art => {
                         html += `
                             <div class="file-item" onclick="previewArticle(${art.id})">
-                                <span class="file-icon article">📄</span>
-                                <span class="file-name">${art.title}</span>
-                                <span class="file-meta">${art.date}</span>
+                                <div class="file-item-header">
+                                    <span class="file-icon article">📄</span>
+                                    <span class="file-name">${art.title}</span>
+                                </div>
+                                <span class="file-meta">${art.author} · ${art.date}</span>
                             </div>
                         `;
                     });
@@ -630,7 +697,7 @@
                 
                 document.getElementById('preview-content').innerHTML = content;
                 document.getElementById('preview-panel').classList.add('active');
-                document.getElementById('browser-panel').style.width = '40%';
+                document.getElementById('browser-panel').classList.add('narrow');
                 
                 term.writeln('\x1b[32m[Opening article: ' + article.title + ']\x1b[0m');
                 term.writeln('\x1b[34m' + cwd + '$\x1b[0m ');
@@ -639,7 +706,8 @@
 
         function closePreview() {
             document.getElementById('preview-panel').classList.remove('active');
-            document.getElementById('browser-panel').style.width = '50%';
+            document.getElementById('browser-panel').classList.remove('narrow');
+            document.getElementById('browser-panel').style.width = '';
         }
 
         function refreshBrowser() {
@@ -1161,8 +1229,48 @@
             term.writeln('');
         }
 
+        // ==================== Resize Handle ====================
+        function initResizeHandle() {
+            const handle = document.getElementById('resize-handle');
+            const terminalPanel = document.getElementById('terminal-panel');
+            const browserPanel = document.getElementById('browser-panel');
+            let isResizing = false;
+            
+            handle.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                handle.classList.add('active');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+            });
+            
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                
+                const containerRect = document.querySelector('.panels-wrapper').getBoundingClientRect();
+                const minTerminalWidth = 300;
+                const maxTerminalWidth = containerRect.width - 280;
+                
+                let newWidth = e.clientX - containerRect.left;
+                newWidth = Math.max(minTerminalWidth, Math.min(newWidth, maxTerminalWidth));
+                
+                terminalPanel.style.flex = 'none';
+                terminalPanel.style.width = newWidth + 'px';
+            });
+            
+            document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                    isResizing = false;
+                    handle.classList.remove('active');
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                    fitAddon.fit();
+                }
+            });
+        }
+        
         // 初始化
         initBrowser();
+        initResizeHandle();
         window.onresize = () => fitAddon.fit();
     </script>
 </body>
