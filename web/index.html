@@ -397,73 +397,63 @@
         };
 
         // ==================== 虚拟文件系统 ====================
-        // 使用外部文章数据文件（无需重启，刷新即可生效）
-        const VirtualFileSystem = {
-            // 文件数据库 - 从外部文件加载
-            files: ArticlesData,
-                '/home/readme.md': {
-                    type: 'md',
-                    title: 'README',
-                    content: '# WebShell Blog\n\nA terminal-style blog system.\n\n## Commands\n- `ls` - List files\n- `cd <dir>` - Change directory\n- `cat <file>` - Read file content\n- `read <id>` - Read article\n- `open <file>` - Preview file',
-                    meta: { author: 'System', date: '2024-01-01' }
-                },
-                '/home/articles/frontend/1.md': {
-                    type: 'md',
-                    title: 'Xterm.js 终端开发指南',
-                    content: '# Xterm.js 终端开发指南\n\n本文介绍如何使用 Xterm.js 构建终端应用。\n\n## 安装\n```bash\nnpm install xterm\n```\n\n## 基本使用\n```javascript\nconst term = new Terminal();\nterm.open(document.getElementById("terminal"));\nterm.write("Hello World");\n```',
-                    meta: { id: 1, author: 'Dev', date: '2024-01-15', tags: ['Xterm.js', '前端'] }
-                },
-                '/home/articles/frontend/2.md': {
-                    type: 'md',
-                    title: 'CSS Grid 布局详解',
-                    content: '# CSS Grid 布局详解\n\n深入理解 CSS Grid 布局系统。\n\n## 基础概念\nGrid 布局由两个概念组成：\n1. Grid Container（网格容器）\n2. Grid Item（网格项）',
-                    meta: { id: 2, author: 'UI', date: '2024-01-20', tags: ['CSS', '布局'] }
-                },
-                '/home/articles/backend/3.md': {
-                    type: 'md',
-                    title: 'Go WebSocket 实战',
-                    content: '# Go WebSocket 实战\n\n使用 Go 实现 WebSocket 服务器。\n\n## 服务端代码\n```go\nhttp.HandleFunc("/ws", wsHandler)\nhttp.ListenAndServe(":8080", nil)\n```',
-                    meta: { id: 3, author: 'Backend', date: '2024-01-25', tags: ['Go', 'WebSocket'] }
-                },
-                '/home/articles/backend/4.md': {
-                    type: 'md',
-                    title: 'RESTful API 设计原则',
-                    content: '# RESTful API 设计原则\n\nRESTful API 设计的最佳实践。\n\n## HTTP 方法\n- GET - 查询资源\n- POST - 创建资源\n- PUT - 更新资源\n- DELETE - 删除资源',
-                    meta: { id: 4, author: 'API', date: '2024-02-01', tags: ['API', '架构'] }
-                },
-                '/home/articles/devops/5.md': {
-                    type: 'md',
-                    title: 'Docker 容器化部署',
-                    content: '# Docker 容器化部署\n\nDocker 容器化部署实战。\n\n## Dockerfile 示例\n```dockerfile\nFROM nginx:latest\nCOPY . /usr/share/nginx/html\n```',
-                    meta: { id: 5, author: 'Ops', date: '2024-02-05', tags: ['Docker', '容器'] }
-                },
-                '/home/posts/life/6.md': {
-                    type: 'md',
-                    title: '我的 2024 年计划',
-                    content: '# 我的 2024 年计划\n\n新一年的目标与规划。\n\n## 技术目标\n1. 深入学习 Go 语言\n2. 掌握 Kubernetes\n3. 完成博客系统重构',
-                    meta: { id: 6, author: 'Me', date: '2024-01-01', tags: ['计划'] }
-                },
-                '/home/posts/tech/7.md': {
-                    type: 'md',
-                    title: '如何高效学习新技术',
-                    content: '# 如何高效学习新技术\n\n分享我的学习方法与经验。\n\n## 学习方法\n1. 看官方文档\n2. 动手实践\n3. 总结输出',
-                    meta: { id: 7, author: 'Me', date: '2024-01-30', tags: ['学习'] }
-                },
-                '/home/docs/guide.pdf': {
-                    type: 'pdf',
-                    title: '用户指南',
-                    content: '[PDF Document]\n这是一个 PDF 文档示例。\n\n在实际环境中，可以嵌入 PDF 预览组件。',
-                    url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-                    meta: { author: 'System', date: '2024-01-01' }
-                },
-                '/home/docs/design.doc': {
-                    type: 'doc',
-                    title: '设计文档',
-                    content: '[Word Document]\n这是一个 Word 文档示例。\n\n在实际环境中，可以集成文档预览服务。',
-                    url: null,
-                    meta: { author: 'Designer', date: '2024-02-01' }
+        // 从服务器 API 加载文章数据
+        let articlesData = {};
+
+        // 加载文章列表
+        async function loadArticles() {
+            try {
+                const response = await fetch('/api/articles');
+                const articles = await response.json();
+                
+                // 转换为 VirtualFileSystem 格式
+                articles.forEach(art => {
+                    const fullPath = art.path;
+                    articlesData[fullPath] = {
+                        type: 'md',
+                        title: art.name.replace('.md', ''),
+                        content: '', // 需要单独请求获取
+                        meta: {
+                            id: art.id === 'readme' ? 0 : parseInt(art.id),
+                            category: art.category,
+                            categoryName: art.categoryName,
+                            icon: art.icon
+                        }
+                    };
+                });
+                
+                console.log(`Loaded ${articles.length} articles`);
+            } catch (e) {
+                console.error('Failed to load articles:', e);
+            }
+        }
+
+        // 获取单篇文章内容
+        async function loadArticleContent(id) {
+            try {
+                const response = await fetch(`/api/articles/${id}`);
+                if (response.ok) {
+                    return await response.json();
                 }
+            } catch (e) {
+                console.error('Failed to load article:', e);
+            }
+            return null;
+        }
+
+const VirtualFileSystem = {
+            files: articlesData,
+            
+            // 重置文件数据（刷新时使用）
+            reset() {
+                articlesData = {};
             },
+            
+            // 添加文章
+            addFile(path, data) {
+                articlesData[path] = data;
+            },
+            
             resolvePath(inputPath) {
                 let targetPath;
                 
@@ -848,11 +838,28 @@
         }
         
         // 在终端读取文章
-        function readArticleInTerminal(filePath) {
+        async function readArticleInTerminal(filePath) {
             const file = VirtualFileSystem.getFile(filePath);
             if (!file) {
                 term.writeln('\x1b[31mcat: file not found\x1b[0m');
                 return;
+            }
+            
+            let content = file.content;
+            
+            // 如果内容为空，从服务器获取
+            if (!content || content === '') {
+                term.writeln('\x1b[90mLoading...\x1b[0m');
+                const id = file.meta?.id || filePath.split('/').pop().replace('.md', '');
+                const articleData = await loadArticleContent(id);
+                if (articleData) {
+                    content = articleData.content;
+                    // 缓存内容
+                    file.content = content;
+                } else {
+                    term.writeln('\x1b[31mFailed to load article content\x1b[0m');
+                    return;
+                }
             }
             
             term.writeln('\x1b[1m\x1b[36m# ' + file.title + '\x1b[0m');
@@ -860,6 +867,7 @@
                 let metaStr = '\x1b[90m';
                 if (file.meta.date) metaStr += 'Date: ' + file.meta.date;
                 if (file.meta.author) metaStr += ' | Author: ' + file.meta.author;
+                if (file.meta.categoryName) metaStr += ' | Category: ' + file.meta.categoryName;
                 if (file.meta.tags) metaStr += ' | Tags: ' + file.meta.tags.join(', ');
                 metaStr += '\x1b[0m';
                 term.writeln(metaStr);
@@ -867,7 +875,6 @@
             term.writeln('');
             
             // 简单渲染 Markdown（标题、加粗、代码块）
-            const content = file.content || '';
             const lines = content.split('\n');
             lines.forEach(line => {
                 if (line.startsWith('# ')) {
@@ -1251,6 +1258,9 @@
                 case 'read':
                     readArticle(args);
                     break;
+                case 'refresh':
+                    refreshArticles();
+                    break;
                 case 'pwd':
                     term.writeln(cwd);
                     break;
@@ -1303,6 +1313,7 @@
             term.writeln('  \x1b[36mcat <file>\x1b[0m        Read file in terminal');
             term.writeln('  \x1b[36mopen <file>\x1b[0m       Preview file in side panel');
             term.writeln('  \x1b[36mread <id>\x1b[0m          Read article by ID');
+            term.writeln('  \x1b[36mrefresh\x1b[0m           Refresh article list');
             term.writeln('');
             term.writeln('\x1b[33mSystem:\x1b[0m');
             term.writeln('  \x1b[36mclear\x1b[0m             Clear screen');
@@ -1542,11 +1553,28 @@
                 }
             });
         }
+
+        // 刷新文章列表
+        async function refreshArticles() {
+            term.writeln('\x1b[33mRefreshing articles...\x1b[0m');
+            try {
+                await fetch('/api/refresh', { method: 'POST' });
+                VirtualFileSystem.reset();
+                await loadArticles();
+                renderFileList(cwd);
+                term.writeln('\x1b[32mArticles refreshed! Reload the page to see new articles.\x1b[0m');
+            } catch (e) {
+                term.writeln('\x1b[31mFailed to refresh: ' + e.message + '\x1b[0m');
+            }
+        }
         
         // 初始化
-        initBrowser();
-        initResizeHandle();
-        window.onresize = () => fitAddon.fit();
+        (async function init() {
+            await loadArticles();
+            initBrowser();
+            initResizeHandle();
+            window.onresize = () => fitAddon.fit();
+        })();
     </script>
 </body>
 </html>
