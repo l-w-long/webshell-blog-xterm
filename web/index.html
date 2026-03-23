@@ -398,17 +398,60 @@
         // ==================== 虚拟文件系统 ====================
         // 从服务器 API 加载文章数据
         let articlesData = {};
+        const STORAGE_KEY = 'webshell_articles';
+        const STORAGE_TIMESTAMP_KEY = 'webshell_articles_timestamp';
+
+        // 从 localStorage 加载缓存
+        function loadFromCache() {
+            try {
+                const cached = localStorage.getItem(STORAGE_KEY);
+                if (cached) {
+                    return JSON.parse(cached);
+                }
+            } catch (e) {
+                console.warn('Failed to load from cache:', e);
+            }
+            return null;
+        }
+
+        // 保存到 localStorage
+        function saveToCache(articles) {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(articles));
+                localStorage.setItem(STORAGE_TIMESTAMP_KEY, Date.now().toString());
+            } catch (e) {
+                console.warn('Failed to save to cache:', e);
+            }
+        }
+
+        // 检查缓存是否过期（24小时）
+        function isCacheExpired() {
+            try {
+                const timestamp = localStorage.getItem(STORAGE_TIMESTAMP_KEY);
+                if (!timestamp) return true;
+                const daysPassed = (Date.now() - parseInt(timestamp)) / (1000 * 60 * 60 * 24);
+                return daysPassed > 1;
+            } catch (e) {
+                return true;
+            }
+        }
 
         // 加载文章列表
         async function loadArticles() {
+            // 先尝试从 localStorage 加载（快速响应）
+            const cached = loadFromCache();
+            if (cached) {
+                Object.assign(articlesData, cached);
+                console.log(`Loaded ${Object.keys(articlesData).length} articles from cache`);
+            }
+
+            // 然后从 API 刷新（获取最新）
             try {
                 const response = await fetch('/api/articles');
                 const articles = await response.json();
                 
                 // 转换为 VirtualFileSystem 格式
                 articles.forEach(art => {
-                    // 服务器返回 /readme.md, /articles/frontend/1.md
-                    // 前端需要 /home/readme.md, /home/articles/frontend/1.md
                     const fullPath = art.path === '/readme.md' 
                         ? '/home/readme.md' 
                         : '/home' + art.path;
@@ -416,7 +459,7 @@
                     articlesData[fullPath] = {
                         type: 'md',
                         title: art.name.replace('.md', ''),
-                        content: '', // 需要单独请求获取
+                        content: articlesData[fullPath]?.content || '', // 保留缓存的内容
                         meta: {
                             id: art.id === 'readme' ? 0 : parseInt(art.id),
                             category: art.category,
@@ -425,8 +468,14 @@
                         }
                     };
                 });
-                
-                console.log(`Loaded ${articles.length} articles`);
+
+                // 保存到 localStorage
+                saveToCache(articlesData);
+                console.log(`Loaded ${articles.length} articles from API`);
+            } catch (e) {
+                console.warn('Failed to load from API, using cache:', e);
+            }
+        }
             } catch (e) {
                 console.error('Failed to load articles:', e);
             }
@@ -435,9 +484,26 @@
         // 获取单篇文章内容
         async function loadArticleContent(id) {
             try {
+                // 先检查缓存
+                const cacheKey = `webshell_article_${id}`;
+                const cachedContent = localStorage.getItem(cacheKey);
+                if (cachedContent) {
+                    return JSON.parse(cachedContent);
+                }
+
+                // 从 API 获取
                 const response = await fetch(`/api/articles/${id}`);
                 if (response.ok) {
-                    return await response.json();
+                    const data = await response.json();
+                    
+                    // 缓存内容
+                    try {
+                        localStorage.setItem(cacheKey, JSON.stringify(data));
+                    } catch (e) {
+                        console.warn('Failed to cache article content:', e);
+                    }
+                    
+                    return data;
                 }
             } catch (e) {
                 console.error('Failed to load article:', e);
@@ -1562,11 +1628,22 @@ const VirtualFileSystem = {
         async function refreshArticles() {
             term.writeln('\x1b[33mRefreshing articles...\x1b[0m');
             try {
+                // 清除缓存
+                localStorage.removeItem(STORAGE_KEY);
+                localStorage.removeItem(STORAGE_TIMESTAMP_KEY);
+                
+                // 清除文章内容缓存
+                Object.keys(localStorage).forEach(key => {
+                    if (key.startsWith('webshell_article_')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
                 await fetch('/api/refresh', { method: 'POST' });
                 VirtualFileSystem.reset();
                 await loadArticles();
                 renderFileList(cwd);
-                term.writeln('\x1b[32mArticles refreshed! Reload the page to see new articles.\x1b[0m');
+                term.writeln('\x1b[32mArticles refreshed! Cache cleared.\x1b[0m');
             } catch (e) {
                 term.writeln('\x1b[31mFailed to refresh: ' + e.message + '\x1b[0m');
             }
