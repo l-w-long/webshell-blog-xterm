@@ -382,6 +382,7 @@
 
     <script src="lib/xterm.js"></script>
     <script src="lib/xterm-addon-fit.js"></script>
+    <script src="data/articles.js"></script>
     <script>
         // ==================== 文件系统数据 ====================
         const fileSystem = {
@@ -396,9 +397,10 @@
         };
 
         // ==================== 虚拟文件系统 ====================
+        // 使用外部文章数据文件（无需重启，刷新即可生效）
         const VirtualFileSystem = {
-            // 文件数据库 - 所有文件都在这里
-            files: {
+            // 文件数据库 - 从外部文件加载
+            files: ArticlesData,
                 '/home/readme.md': {
                     type: 'md',
                     title: 'README',
@@ -462,8 +464,6 @@
                     meta: { author: 'Designer', date: '2024-02-01' }
                 }
             },
-            
-            // 解析路径（支持相对路径和绝对路径）
             resolvePath(inputPath) {
                 let targetPath;
                 
