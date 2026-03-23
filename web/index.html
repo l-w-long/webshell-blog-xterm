@@ -382,7 +382,6 @@
 
     <script src="lib/xterm.js"></script>
     <script src="lib/xterm-addon-fit.js"></script>
-    <script src="data/articles.js"></script>
     <script>
         // ==================== 文件系统数据 ====================
         const fileSystem = {
@@ -408,7 +407,12 @@
                 
                 // 转换为 VirtualFileSystem 格式
                 articles.forEach(art => {
-                    const fullPath = art.path;
+                    // 服务器返回 /readme.md, /articles/frontend/1.md
+                    // 前端需要 /home/readme.md, /home/articles/frontend/1.md
+                    const fullPath = art.path === '/readme.md' 
+                        ? '/home/readme.md' 
+                        : '/home' + art.path;
+                    
                     articlesData[fullPath] = {
                         type: 'md',
                         title: art.name.replace('.md', ''),
